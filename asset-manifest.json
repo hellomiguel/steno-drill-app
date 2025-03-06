@@ -1,0 +1,16 @@
+{
+  "files": {
+    "main.css": "/steno-drill-app/static/css/main.f855e6bc.css",
+    "main.js": "/steno-drill-app/static/js/main.209c8bd6.js",
+    "static/js/453.2ffa219b.chunk.js": "/steno-drill-app/static/js/453.2ffa219b.chunk.js",
+    "static/media/logo.svg": "/steno-drill-app/static/media/logo.6ce24c58023cc2f8fd88fe9d219db6c6.svg",
+    "index.html": "/steno-drill-app/index.html",
+    "main.f855e6bc.css.map": "/steno-drill-app/static/css/main.f855e6bc.css.map",
+    "main.209c8bd6.js.map": "/steno-drill-app/static/js/main.209c8bd6.js.map",
+    "453.2ffa219b.chunk.js.map": "/steno-drill-app/static/js/453.2ffa219b.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.f855e6bc.css",
+    "static/js/main.209c8bd6.js"
+  ]
+}
