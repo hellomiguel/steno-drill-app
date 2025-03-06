@@ -7,6 +7,9 @@ import {
   ChevronDown,
   ChevronUp,
   BarChart2,
+  Check,
+  X,
+  Keyboard,
 } from "lucide-react";
 
 const StenoDrillApp = () => {
@@ -18,10 +21,17 @@ const StenoDrillApp = () => {
   const [currentStep, setCurrentStep] = useState(0);
   const [drillHistory, setDrillHistory] = useState([]);
   const [showStats, setShowStats] = useState(false);
+  const [userInput, setUserInput] = useState("");
+  const [inputResult, setInputResult] = useState(null); // null, "correct", or "incorrect"
+  const [showKeyboard, setShowKeyboard] = useState(false);
+  const [autoAdvance, setAutoAdvance] = useState(true);
+  const [accuracy, setAccuracy] = useState({ correct: 0, incorrect: 0 });
+  const [stepStats, setStepStats] = useState({});
 
   const intervalRef = useRef(null);
   const metronomeRef = useRef(null);
   const stepIntervalRef = useRef(null);
+  const inputRef = useRef(null);
 
   // Steno drill categories and their drills
   const drills = {
@@ -224,6 +234,31 @@ const StenoDrillApp = () => {
     ],
   };
 
+  // Steno keyboard layout for visual reference
+  const stenoKeyboardLayout = [
+    { key: "S", position: "left", finger: "pinky" },
+    { key: "T", position: "left", finger: "ring" },
+    { key: "K", position: "left", finger: "ring" },
+    { key: "P", position: "left", finger: "middle" },
+    { key: "W", position: "left", finger: "middle" },
+    { key: "H", position: "left", finger: "index" },
+    { key: "R", position: "left", finger: "index" },
+    { key: "A", position: "left", finger: "thumb" },
+    { key: "O", position: "left", finger: "thumb" },
+    { key: "E", position: "right", finger: "thumb" },
+    { key: "U", position: "right", finger: "thumb" },
+    { key: "F", position: "right", finger: "index" },
+    { key: "R", position: "right", finger: "index" },
+    { key: "P", position: "right", finger: "middle" },
+    { key: "B", position: "right", finger: "middle" },
+    { key: "L", position: "right", finger: "ring" },
+    { key: "G", position: "right", finger: "ring" },
+    { key: "T", position: "right", finger: "pinky" },
+    { key: "S", position: "right", finger: "pinky" },
+    { key: "D", position: "right", finger: "pinky" },
+    { key: "Z", position: "right", finger: "pinky" },
+  ];
+
   useEffect(() => {
     // Create metronome sound
     metronomeRef.current = new Audio(
@@ -237,6 +272,18 @@ const StenoDrillApp = () => {
       setDrillHistory(JSON.parse(savedHistory));
     }
 
+    // Load accuracy stats from localStorage
+    const savedAccuracy = localStorage.getItem("stenoAccuracy");
+    if (savedAccuracy) {
+      setAccuracy(JSON.parse(savedAccuracy));
+    }
+
+    // Load step stats from localStorage
+    const savedStepStats = localStorage.getItem("stenoStepStats");
+    if (savedStepStats) {
+      setStepStats(JSON.parse(savedStepStats));
+    }
+
     return () => {
       clearInterval(intervalRef.current);
       clearInterval(stepIntervalRef.current);
@@ -247,6 +294,16 @@ const StenoDrillApp = () => {
   useEffect(() => {
     localStorage.setItem("stenoDrillHistory", JSON.stringify(drillHistory));
   }, [drillHistory]);
+
+  // Save accuracy stats to localStorage when they change
+  useEffect(() => {
+    localStorage.setItem("stenoAccuracy", JSON.stringify(accuracy));
+  }, [accuracy]);
+
+  // Save step stats to localStorage when they change
+  useEffect(() => {
+    localStorage.setItem("stenoStepStats", JSON.stringify(stepStats));
+  }, [stepStats]);
 
   // Timer management
   useEffect(() => {
@@ -262,7 +319,7 @@ const StenoDrillApp = () => {
 
   // Step management with metronome
   useEffect(() => {
-    if (isRunning && activeDrill) {
+    if (isRunning && activeDrill && autoAdvance) {
       const stepsLength = drills[activeTab].find((d) => d.id === activeDrill)
         .steps.length;
       const intervalTime = (60 / tempo) * 1000;
@@ -270,12 +327,26 @@ const StenoDrillApp = () => {
       stepIntervalRef.current = setInterval(() => {
         metronomeRef.current.play();
         setCurrentStep((prevStep) => (prevStep + 1) % stepsLength);
+        // Reset the input field and result when advancing to next step
+        setUserInput("");
+        setInputResult(null);
+        // Focus the input field
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
       }, intervalTime);
     } else {
       clearInterval(stepIntervalRef.current);
     }
     return () => clearInterval(stepIntervalRef.current);
-  }, [isRunning, activeDrill, activeTab, tempo]);
+  }, [isRunning, activeDrill, activeTab, tempo, autoAdvance]);
+
+  // Focus the input field when drill starts
+  useEffect(() => {
+    if (isRunning && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isRunning, currentStep]);
 
   const formatTime = (timeInSeconds) => {
     const minutes = Math.floor(timeInSeconds / 60);
@@ -290,6 +361,25 @@ const StenoDrillApp = () => {
     setIsRunning(true);
     setTimer(0);
     setCurrentStep(0);
+    setUserInput("");
+    setInputResult(null);
+    // Reset step-specific stats for this drill
+    const currentDrillSteps = drills[activeTab].find(
+      (d) => d.id === drillId
+    ).steps;
+    const newStepStats = { ...stepStats };
+
+    if (!newStepStats[drillId]) {
+      newStepStats[drillId] = {};
+      currentDrillSteps.forEach((step, index) => {
+        newStepStats[drillId][index] = {
+          attempts: 0,
+          correct: 0,
+          avgTime: 0
+        };
+      });
+      setStepStats(newStepStats);
+    }
   };
 
   const stopDrill = () => {
@@ -297,6 +387,13 @@ const StenoDrillApp = () => {
       const drillName = drills[activeTab].find(
         (d) => d.id === activeDrill
       ).name;
+
+      // Calculate accuracy for this session
+      const totalAttempts = accuracy.correct + accuracy.incorrect;
+      const accuracyPercentage = totalAttempts > 0
+        ? Math.round((accuracy.correct / totalAttempts) * 100)
+        : 0;
+
       setDrillHistory([
         ...drillHistory,
         {
@@ -305,12 +402,21 @@ const StenoDrillApp = () => {
           category: activeTab,
           time: timer,
           date: new Date().toISOString(),
+          correct: accuracy.correct,
+          incorrect: accuracy.incorrect,
+          accuracy: accuracyPercentage
         },
       ]);
+
+      // Reset session accuracy
+      setAccuracy({ correct: 0, incorrect: 0 });
     }
     setIsRunning(false);
     setTimer(0);
     setCurrentStep(0);
+    setUserInput("");
+    setInputResult(null);
+    setActiveDrill(null);
   };
 
   const pauseDrill = () => {
@@ -319,6 +425,9 @@ const StenoDrillApp = () => {
 
   const resumeDrill = () => {
     setIsRunning(true);
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
   };
 
   const resetDrill = () => {
@@ -335,6 +444,66 @@ const StenoDrillApp = () => {
   const getCurrentStep = () => {
     const steps = getCurrentDrillSteps();
     return steps[currentStep] || null;
+  };
+
+  const handleInputChange = (e) => {
+    setUserInput(e.target.value.toUpperCase());
+  };
+
+  const handleInputSubmit = (e) => {
+    e.preventDefault();
+
+    const currentStepObj = getCurrentStep();
+    if (!currentStepObj) return;
+
+    // Clean up input and expected keys for comparison
+    const cleanExpectedKeys = currentStepObj.keys.replace(/[^A-Z]/g, "");
+    const cleanUserInput = userInput.replace(/[^A-Z]/g, "");
+
+    // Check if input matches expected keys
+    const isCorrect = cleanUserInput === cleanExpectedKeys;
+    setInputResult(isCorrect ? "correct" : "incorrect");
+
+    // Update accuracy stats
+    setAccuracy(prev => ({
+      correct: prev.correct + (isCorrect ? 1 : 0),
+      incorrect: prev.incorrect + (isCorrect ? 0 : 1)
+    }));
+
+    // Update step-specific stats
+    if (stepStats[activeDrill]) {
+      const stepStat = stepStats[activeDrill][currentStep] || {
+        attempts: 0,
+        correct: 0,
+        avgTime: 0
+      };
+
+      const newStepStats = { ...stepStats };
+      newStepStats[activeDrill][currentStep] = {
+        attempts: stepStat.attempts + 1,
+        correct: stepStat.correct + (isCorrect ? 1 : 0),
+        avgTime: stepStat.avgTime // We would need to track time per step to calculate this properly
+      };
+
+      setStepStats(newStepStats);
+    }
+
+    // If correct and not in auto-advance mode, manually move to next step
+    if (isCorrect && !autoAdvance) {
+      setTimeout(() => {
+        const stepsLength = getCurrentDrillSteps().length;
+        setCurrentStep((prevStep) => (prevStep + 1) % stepsLength);
+        setUserInput("");
+        setInputResult(null);
+      }, 500);
+    }
+  };
+
+  const getAccuracyPercentage = () => {
+    const totalAttempts = accuracy.correct + accuracy.incorrect;
+    return totalAttempts > 0
+      ? Math.round((accuracy.correct / totalAttempts) * 100)
+      : 0;
   };
 
   return (
@@ -384,6 +553,13 @@ const StenoDrillApp = () => {
                 </div>
                 <div className="flex items-center space-x-2">
                   <button
+                    onClick={() => setShowKeyboard(!showKeyboard)}
+                    className="p-2 rounded-full hover:bg-slate-100"
+                    title="Toggle keyboard"
+                  >
+                    <Keyboard size={20} className="text-slate-600" />
+                  </button>
+                  <button
                     onClick={resetDrill}
                     className="p-2 rounded-full hover:bg-slate-100"
                     title="Reset drill"
@@ -417,6 +593,18 @@ const StenoDrillApp = () => {
                   Tempo: {tempo} BPM
                 </label>
                 <div className="flex items-center">
+                  <div className="flex items-center mr-4">
+                    <input
+                      type="checkbox"
+                      id="autoAdvance"
+                      checked={autoAdvance}
+                      onChange={(e) => setAutoAdvance(e.target.checked)}
+                      className="mr-2"
+                    />
+                    <label htmlFor="autoAdvance" className="text-sm text-slate-600">
+                      Auto-advance
+                    </label>
+                  </div>
                   <button
                     onClick={() => setTempo(Math.max(30, tempo - 5))}
                     className="p-1 rounded hover:bg-slate-100"
@@ -447,150 +635,120 @@ const StenoDrillApp = () => {
               <div className="text-4xl font-bold text-slate-800 mb-2">
                 {getCurrentStep()?.text || ""}
               </div>
-              <div className="text-lg text-slate-600">
+              <div className="text-lg text-slate-600 mb-4">
                 {getCurrentStep()?.finger || ""}
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-slate-50 rounded-lg p-4">
-                <h3 className="font-medium mb-2 text-slate-700">
-                  Current Step
-                </h3>
+              {/* Input verification section */}
+              <form onSubmit={handleInputSubmit} className="max-w-md mx-auto">
                 <div className="flex items-center">
-                  <div className="bg-blue-100 text-blue-800 px-2 py-1 rounded font-mono">
-                    {getCurrentStep()?.keys || ""}
-                  </div>
-                  <span className="mx-2 text-slate-400">•</span>
-                  <span className="text-slate-600">
-                    {currentStep + 1} of {getCurrentDrillSteps().length}
-                  </span>
-                </div>
-              </div>
-
-              <div className="bg-slate-50 rounded-lg p-4">
-                <h3 className="font-medium mb-2 text-slate-700">
-                  Instructions
-                </h3>
-                <p className="text-slate-600 text-sm">
-                  {
-                    drills[activeTab].find((d) => d.id === activeDrill)
-                      ?.description
-                  }
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : (
-          // Drill selection screen
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {drills[activeTab].map((drill) => (
-              <div
-                key={drill.id}
-                className="bg-white rounded-lg shadow overflow-hidden"
-              >
-                <div className="p-4">
-                  <h3 className="font-bold text-lg mb-2">{drill.name}</h3>
-                  <p className="text-slate-600 text-sm mb-4">
-                    {drill.description}
-                  </p>
-                  <div className="text-xs text-slate-500 mb-4">
-                    {drill.steps.length} steps
-                  </div>
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={userInput}
+                    onChange={handleInputChange}
+                    className={`flex-grow px-4 py-2 border ${
+                      inputResult === null
+                        ? "border-slate-300"
+                        : inputResult === "correct"
+                        ? "border-green-500 bg-green-50"
+                        : "border-red-500 bg-red-50"
+                    } rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500`}
+                    placeholder="Type your steno chord here..."
+                    autoComplete="off"
+                    spellCheck="false"
+                  />
                   <button
-                    onClick={() => startDrill(drill.id)}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded flex items-center justify-center"
+                    type="submit"
+                    className="ml-2 bg-blue-600 hover:bg-blue-700 text-white font-medium p-2 rounded-lg"
                   >
-                    <Play size={16} className="mr-2" />
-                    Start Practice
+                    {inputResult === "correct" ? (
+                      <Check size={20} />
+                    ) : inputResult === "incorrect" ? (
+                      <X size={20} />
+                    ) : (
+                      "Check"
+                    )}
                   </button>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </main>
+                <div className="mt-2 text-sm">
+                  {inputResult === "correct" && (
+                    <span className="text-green-600">Correct! Well done.</span>
+                  )}
+                  {inputResult === "incorrect" && (
+                    <span className="text-red-600">
+                      Try again. Expected: {getCurrentStep()?.keys}
+                    </span>
+                  )}
+                </div>
+              </form>
+            </div>
 
-      {/* Practice History/Stats */}
-      <div className="border-t border-slate-200 bg-white">
-        <button
-          onClick={() => setShowStats(!showStats)}
-          className="w-full flex items-center justify-center py-2 text-slate-600 hover:bg-slate-50"
-        >
-          <BarChart2 size={16} className="mr-2" />
-          {showStats ? "Hide Practice History" : "Show Practice History"}
-          {showStats ? (
-            <ChevronDown size={16} className="ml-2" />
-          ) : (
-            <ChevronUp size={16} className="ml-2" />
-          )}
-        </button>
+            {/* Keyboard visualization (toggled) */}
+            {showKeyboard && (
+              <div className="mb-6 p-4 bg-slate-50 rounded-lg">
+                <h3 className="font-medium mb-2 text-slate-700">Steno Keyboard Layout</h3>
+                <div className="flex justify-center">
+                  <div className="relative w-full max-w-lg h-32 bg-white rounded border border-slate-200">
+                    {/* Left bank */}
+                    <div className="absolute left-4 top-2 flex flex-col">
+                      {stenoKeyboardLayout
+                        .filter(k => k.position === "left" && k.finger !== "thumb")
+                        .map((key, i) => {
+                          const isHighlighted = getCurrentStep()?.keys.includes(key.key);
+                          return (
+                            <div
+                              key={`left-${i}`}
+                              className={`w-8 h-8 m-1 rounded-full flex items-center justify-center ${
+                                isHighlighted
+                                  ? "bg-blue-500 text-white"
+                                  : "bg-slate-100 text-slate-700"
+                              }`}
+                            >
+                              {key.key}
+                            </div>
+                          );
+                        })}
+                    </div>
 
-        {showStats && (
-          <div className="p-4">
-            <h2 className="text-lg font-bold mb-4">Practice History</h2>
-            {drillHistory.length === 0 ? (
-              <p className="text-slate-500 text-center py-4">
-                No practice sessions recorded yet.
-              </p>
-            ) : (
-              <div className="overflow-auto">
-                <table className="min-w-full">
-                  <thead>
-                    <tr className="border-b border-slate-200">
-                      <th className="px-4 py-2 text-left text-sm font-medium text-slate-600">
-                        Date
-                      </th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-slate-600">
-                        Drill
-                      </th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-slate-600">
-                        Category
-                      </th>
-                      <th className="px-4 py-2 text-left text-sm font-medium text-slate-600">
-                        Time
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...drillHistory]
-                      .reverse()
-                      .slice(0, 10)
-                      .map((session) => (
-                        <tr
-                          key={session.id}
-                          className="border-b border-slate-100"
-                        >
-                          <td className="px-4 py-2 text-sm text-slate-600">
-                            {new Date(session.date).toLocaleDateString()}
-                          </td>
-                          <td className="px-4 py-2 text-sm font-medium">
-                            {session.drill}
-                          </td>
-                          <td className="px-4 py-2 text-sm text-slate-600 capitalize">
-                            {session.category}
-                          </td>
-                          <td className="px-4 py-2 text-sm text-slate-600">
-                            {formatTime(session.time)}
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+                    {/* Vowel keys (thumbs) */}
+                    <div className="absolute left-1/2 bottom-2 transform -translate-x-1/2 flex">
+                      {stenoKeyboardLayout
+                        .filter(k => k.finger === "thumb")
+                        .map((key, i) => {
+                          const isHighlighted = getCurrentStep()?.keys.includes(key.key);
+                          return (
+                            <div
+                              key={`thumb-${i}`}
+                              className={`w-8 h-8 m-1 rounded-full flex items-center justify-center ${
+                                isHighlighted
+                                  ? "bg-blue-500 text-white"
+                                  : "bg-slate-100 text-slate-700"
+                              }`}
+                            >
+                              {key.key}
+                            </div>
+                          );
+                        })}
+                    </div>
 
-      <footer className="bg-slate-800 text-white p-4 text-center text-sm">
-        <p>© 2025 Steno Finger Drill Practice App</p>
-        <p className="text-slate-400 text-xs mt-1">
-          Built for court reporters and stenography students
-        </p>
-      </footer>
-    </div>
-  );
-};
-
-export default StenoDrillApp;
+                    {/* Right bank */}
+                    <div className="absolute right-4 top-2 flex flex-col">
+                      {stenoKeyboardLayout
+                        .filter(k => k.position === "right" && k.finger !== "thumb")
+                        .map((key, i) => {
+                          const isHighlighted = getCurrentStep()?.keys.includes(key.key);
+                          return (
+                            <div
+                              key={`right-${i}`}
+                              className={`w-8 h-8 m-1 rounded-full flex items-center justify-center ${
+                                isHighlighted
+                                  ? "bg-blue-500 text-white"
+                                  : "bg-slate-100 text-slate-700"
+                              }`}
+                            >
+                              {key.key}
+                            </div>
+                          );
+                        })}
+                    </div>
